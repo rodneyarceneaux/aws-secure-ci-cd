@@ -41,6 +41,7 @@ Click Add Provider.
 Screenshot Placeholder:
 
 📸 Add a screenshot here showing your Identity Provider configuration in AWS IAM.
+<img width="1843" height="750" alt="Phase1OIDCSetup" src="https://github.com/user-attachments/assets/3316b7be-6a6e-4887-abdc-c912e429f38c" />
 
 🔹 Step 2 — Create the IAM Role Trusted by GitHub Actions
 Actions:
