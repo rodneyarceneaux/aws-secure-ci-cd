@@ -1,3 +1,100 @@
-name: Apply (Manual)
+name: Apply (Manual, Guarded)
+
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options: [dev, prod]
+        default: dev
+        required: true
+      confirm:
+        description: "Type YES to confirm you want to APPLY infrastructure changes"
+        type: string
+        required: true
+        default: "NO"
+
+concurrency:
+  group: terraform-apply-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  apply:
+    # Only allow from main and only when confirm is YES
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'YES'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}   # set up a GitHub Environment with required reviewers for extra safety
+    defaults:
+      run:
+        working-directory: terraform/envs/dev
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python for Checkov
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Tooling (same pattern as Plan)
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Install tfsec
+        run: |
+          wget -qO /usr/local/bin/tfsec https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64
+          chmod +x /usr/local/bin/tfsec
+
+      - name: Install Conftest
+        run: |
+          latest=$(curl -s https://api.github.com/repos/open-policy-agent/conftest/releases/latest | grep "browser_download_url" | grep linux_amd64 | cut -d '"' -f 4)
+          wget -qO /usr/local/bin/conftest "$latest"
+          chmod +x /usr/local/bin/conftest
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::431477717595:role/rodneyarceneaux-aws-secure-ci-cd-terraform-prod-gha-oidc
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # Validate again before apply (good hygiene)
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        run: terraform init -upgrade
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      # Re-run security gates (non-blocking by default; make them blocking if you prefer)
+      - name: Run tfsec
+        run: tfsec --config-file ../../security/.tfsec.yaml ../../ || true
+
+      - name: Run Checkov
+        run: checkov -d ../../ -o cli --config-file ../../security/.checkov.yaml || true
+
+      - name: Run Conftest (OPA Policy Checks)
+        run: conftest test ../../terraform --policy ../../policy/rego || true
+
+      # Create a plan so approvers can see diffs in the logs
+      - name: Terraform Plan (pre-apply)
+        run: terraform plan -out tfplan
+
+      - name: Show Plan Summary
+        run: terraform show -no-color tfplan | sed -n '1,200p'
+
+      # Final apply using the plan we just generated
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+
