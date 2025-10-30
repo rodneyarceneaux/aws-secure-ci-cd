@@ -1,0 +1,92 @@
+name: Drift Detection (Terraform + Security)
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"  # Every Monday at 3 AM UTC
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  detect-drift:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/envs/dev
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python for Checkov
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Install tfsec
+        run: |
+          wget -qO /usr/local/bin/tfsec https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64
+          chmod +x /usr/local/bin/tfsec
+
+      - name: Install Conftest
+        run: |
+          latest=$(curl -s https://api.github.com/repos/open-policy-agent/conftest/releases/latest | grep "browser_download_url" | grep linux_amd64 | cut -d '"' -f 4)
+          wget -qO /usr/local/bin/conftest "$latest"
+          chmod +x /usr/local/bin/conftest
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::431477717595:role/rodneyarceneaux-aws-secure-ci-cd-terraform-prod-gha-oidc
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init -upgrade
+
+      - name: Terraform Refresh and Plan (Drift Check)
+        run: terraform plan -refresh-only -out=tfplan
+
+      - name: Check for Drift
+        id: drift
+        run: |
+          if terraform show -no-color tfplan | grep -q "No changes."; then
+            echo "no_drift=true" >> $GITHUB_OUTPUT
+            echo "✅ No drift detected."
+          else
+            echo "no_drift=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Drift detected in AWS environment!"
+          fi
+
+      - name: Run tfsec (Optional)
+        if: steps.drift.outputs.no_drift == 'false'
+        run: tfsec --config-file ../../security/.tfsec.yaml ../../ || true
+
+      - name: Run Checkov (Optional)
+        if: steps.drift.outputs.no_drift == 'false'
+        run: checkov -d ../../ -o cli --config-file ../../security/.checkov.yaml || true
+
+      - name: Run Conftest (OPA Policy Checks)
+        if: steps.drift.outputs.no_drift == 'false'
+        run: conftest test ../../terraform --policy ../../policy/rego || true
+
+      - name: Upload Drift Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: terraform/envs/dev/tfplan
+
+      - name: Notify via Summary
+        run: |
+          if [ "${{ steps.drift.outputs.no_drift }}" = "true" ]; then
+            echo "✅ No infrastructure drift detected." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Drift detected — review the plan artifact for details." >> $GITHUB_STEP_SUMMARY
+          fi
