@@ -1,0 +1,5 @@
+quiet: true
+framework: terraform
+download-external-modules: true
+skip-check:
+  - CKV_AWS_144   # optional skip
