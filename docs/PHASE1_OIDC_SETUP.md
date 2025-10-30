@@ -1,151 +1,86 @@
-🥇 Phase 1 – AWS OIDC Authentication Setup
+🥇 AWS OIDC Setup Documentation
+1. Overview
 
-🎯 Objective
+This document outlines the setup of GitHub → AWS authentication using OpenID Connect (OIDC) for secure, keyless access to AWS resources during CI/CD pipeline runs.
 
-Establish a secure, passwordless authentication channel between GitHub Actions and AWS using OpenID Connect (OIDC) — eliminating the need for static AWS access keys in CI/CD pipelines.
+By using OIDC, GitHub Actions can request temporary credentials from AWS without storing static access keys, significantly reducing credential exposure risks.
 
-🧠 Why This Matters
-Old Way	New (OIDC) Way
-Long-lived IAM access keys stored in GitHub Secrets	No secrets stored — GitHub Actions authenticates directly with AWS
-Requires manual rotation	Uses short-lived tokens issued per job
-Broad permissions often reused	Scopes access to specific repo + branch
-Risk of accidental key exposure	Zero-trust, ephemeral credentials
+🔐 Benefits
 
-This is the foundational step for building a secure, auditable CI/CD pipeline.
+No long-lived IAM user access keys.
 
-🧱 Prerequisites
+Role assumption scoped to a specific GitHub repo and branch.
 
-An AWS account with IAM admin or role-creation privileges.
+Ephemeral credentials managed via AWS STS.
 
-A GitHub repository (public or private).
+Simplifies compliance with least-privilege and rotation policies.
 
-Terraform installed locally (>= 1.7).
+2. Architecture Overview
+GitHub Actions Runner
+        │
+        ▼
+   OIDC Token Request
+        │
+        ▼
+AWS IAM OIDC Provider (token.actions.githubusercontent.com)
+        │
+        ▼
+IAM Role (Trusts the provider + specific repo/branch)
+        │
+        ▼
+AWS STS issues short-lived credentials
 
-AWS CLI configured for testing (aws sts get-caller-identity).
 
-🔹 Step 1 — Add GitHub as an OIDC Identity Provider in AWS
-Actions:
+📘 In this setup, only the specified GitHub repository and branch can assume the AWS role via OIDC.
 
-Navigate to IAM → Identity Providers → Add Provider.
-
-Select OpenID Connect as the provider type.
-
-Fill in the following:
+3. Create OIDC Provider in AWS
+3.1 Provider Configuration
 
 Provider URL: https://token.actions.githubusercontent.com
 
 Audience: sts.amazonaws.com
 
-Click Add Provider.
+✅ This establishes AWS as a trusted consumer of GitHub’s OIDC tokens.
 
-Screenshot Placeholder:
+Screenshot:
 
-📸 Add a screenshot here showing your Identity Provider configuration in AWS IAM.
-<img width="1843" height="750" alt="Phase1OIDCSetup" src="https://github.com/user-attachments/assets/3316b7be-6a6e-4887-abdc-c912e429f38c" />
 
-🔹 Step 2 — Create the IAM Role Trusted by GitHub Actions
-Actions:
+4. Create IAM Role for GitHub Actions
+4.1 Role Trust Relationship
 
-Go to IAM → Roles → Create Role.
-
-Select Web Identity.
-
-Choose:
-
-Provider: token.actions.githubusercontent.com
-
-Audience: sts.amazonaws.com
-
-Specify your GitHub details:
-
-Organization/User: rodneyarceneaux
-
-Repository: aws-secure-ci-cd
-
-Branch: main
-
-Click Next, and attach the permissions policy below (for testing).
+This trust policy allows the specific GitHub repo (and branch) to assume the AWS role via OIDC.
 
 {
   "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": "*",
-    "Resource": "*"
-  }]
-}
-
-
-🧠 You’ll later replace this with least-privilege permissions for Terraform.
-
-Screenshot Placeholder:
-
-📸 Add a screenshot of the IAM Role creation screen showing the GitHub repo and branch fields.
-
-🔹 Step 3 — Review and Add Metadata
-Recommended naming convention:
-aws-secure-ci-cd-terraform-dev-gha-oidc
-
-Example description:
-
-Allows GitHub Actions from rodneyarceneaux/aws-secure-ci-cd (main branch) to assume this role via OIDC for Terraform deployments in the dev environment.
-
-Example tags:
-Key	Value
-Project	aws-secure-ci-cd
-Environment	dev
-Owner	rodney.arceneaux
-Source	github-actions
-Repository	rodneyarceneaux/aws-secure-ci-cd
-ManagedBy	Terraform
-Purpose	GitHub OIDC role for Terraform CI/CD
-Screenshot Placeholder:
-
-📸 Capture the AWS IAM Role overview showing Description + Tags.
-
-🔹 Step 4 — Verify Trust Policy
-
-After creating the role, AWS automatically generates this trust relationship:
-
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {
-      "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"
-    },
-    "Action": "sts:AssumeRoleWithWebIdentity",
-    "Condition": {
-      "StringEquals": {
-        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"
       },
-      "StringLike": {
-        "token.actions.githubusercontent.com:sub": "repo:rodneyarceneaux/aws-secure-ci-cd:ref:refs/heads/main"
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:rodneyarceneaux/aws-secure-ci-cd:ref:refs/heads/main"
+        }
       }
     }
-  }]
+  ]
 }
 
 
-✅ Verification Checklist
+✅ This ensures only the main branch of your aws-secure-ci-cd repo can assume this role.
 
- aud equals sts.amazonaws.com
+Screenshot:
 
- sub matches your repo and branch
-(repo:rodneyarceneaux/aws-secure-ci-cd:ref:refs/heads/main)
 
- The role name matches your YAML workflow config
-
-Screenshot Placeholder:
-
-📸 Include the IAM Role → Trust Relationships tab showing this JSON.
-
-🔹 Step 5 — Test the OIDC Connection in GitHub
-
-Create the workflow:
-📄 .github/workflows/test-oidc.yml
-
+5. Test the OIDC Connection from GitHub Actions
+5.1 Workflow: test-oidc.yml
 name: Test AWS OIDC Connection
+
 on:
   workflow_dispatch:
 
@@ -155,7 +90,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -169,68 +103,49 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
-Screenshot Placeholder:
+5.2 Successful Authentication Result
 
-📸 Add a screenshot of this YAML file in your GitHub repo.
-
-🔹 Step 6 — Run and Verify
-
-Push the file to GitHub.
-
-Go to Actions → Test AWS OIDC Connection → Run workflow.
-
-When successful, you’ll see output similar to:
+When the connection works, you’ll see an output like this:
 
 {
-  "UserId": "AROAEXAMPLE:GitHubActions",
+  "UserId": "AROAEXAMPLE:botocore-session-123",
   "Account": "123456789012",
   "Arn": "arn:aws:sts::123456789012:assumed-role/aws-secure-ci-cd-terraform-dev-gha-oidc/github-actions"
 }
 
 
-✅ This confirms that:
+✅ Indicates GitHub successfully assumed the AWS role with OIDC.
 
-GitHub → AWS trust is valid
+Screenshot:
 
-OIDC token exchange succeeded
 
-AWS issued temporary credentials
+6. Security Validation Checklist
+Control	Status	Description
+OIDC Provider URL is correct	✅	Matches GitHub endpoint
+Audience set to sts.amazonaws.com	✅	Matches GitHub token audience
+Trust policy scoped to repo and branch	✅	Follows least privilege
+No IAM access keys used	✅	Authentication via OIDC only
+Role permissions limited to Terraform + Lambda actions	✅	Least privilege
+7. Lessons Learned
 
-Screenshot Placeholder:
+The ARN mismatch issue reminded me that exact string matching matters for OIDC trust conditions.
 
-📸 Add the GitHub Actions log showing “Authenticated as assumedRoleId ...:GitHubActions.”
+The aud and sub claims are the heart of OIDC security in AWS.
 
-🔍 Step 7 — (Optional) Confirm in AWS CloudTrail
+Always test OIDC setup with a minimal workflow before integrating with Terraform.
 
-In CloudTrail → Event History, filter for:
+8. Next Steps
 
-Event name: AssumeRoleWithWebIdentity
+Integrate this OIDC role into Terraform workflows (plan.yml, apply.yml).
 
-User Agent: GitHubActions
+Enforce security gates (tfsec, Checkov, Conftest).
 
-This provides audit evidence that the authentication occurred correctly.
+Migrate Terraform state to S3 with DynamoDB locking.
 
-Screenshot Placeholder:
+✅ Deliverable Summary
 
-📸 Capture the CloudTrail event details showing GitHubActions as the source.
+OIDC provider registered and verified.
 
-🧩 Result
+IAM role with least-privilege trust policy.
 
-You have successfully established a secure OIDC-based authentication between GitHub and AWS.
-
-Component	Purpose
-OIDC Provider	Allows GitHub to present signed identity tokens
-IAM Role	Defines which repo + branch can assume AWS credentials
-GitHub Workflow	Requests short-lived credentials automatically
-CloudTrail Logs	Provides audit trail for every authentication event
-🧠 Key Lessons Learned
-
-Always copy the exact role ARN from AWS (avoid typos).
-
-The aud and sub claims are the core of AWS trust evaluation.
-
-OIDC eliminates the need for long-lived secrets — ideal for secure CI/CD.
-
-Adding descriptions and tags makes IAM roles auditable and readable.
-
-Testing incrementally (with a minimal workflow) helps isolate setup issues.
+GitHub Action validated OIDC-based authentication.
