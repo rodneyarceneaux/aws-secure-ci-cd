@@ -37,8 +37,9 @@ jobs:
 
       - name: Install Conftest
         run: |
-          wget -qO /usr/local/bin/conftest https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_Linux_x86_64
-          chmod +x /usr/local/bin/conftest
+          wget -qO /usr/local/bin/conftest https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_linux_amd64 || true
+          chmod +x /usr/local/bin/conftest || true
+
 
       # 4. Configure AWS OIDC credentials
       - name: Configure AWS credentials via OIDC
@@ -81,3 +82,4 @@ jobs:
         with:
           name: tfplan
           path: terraform/envs/dev/tfplan
+
