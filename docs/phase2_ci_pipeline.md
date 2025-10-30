@@ -16,7 +16,8 @@ This phase implements a secure Terraform planning pipeline using GitHub Actions,
 | Policy as Code | **Conftest (OPA)** | Enforce custom Rego policies |
 
 ## Successful Run Proof
-(Include the screenshots mentioned above)
+<img width="1815" height="1041" alt="image" src="https://github.com/user-attachments/assets/8d7ff854-dae9-4b07-95ac-17154296c2df" />
+
 
 ## Lessons Learned
 - Always verify exact binary URLs (case-sensitive) when using wget in CI.  
