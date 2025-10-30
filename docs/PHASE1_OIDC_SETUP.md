@@ -44,6 +44,7 @@ Audience: sts.amazonaws.com
 
 Screenshot:
 
+<img width="1843" height="750" alt="01_oidc_provider" src="https://github.com/user-attachments/assets/691de370-71fe-4f9a-ae92-64e816ed901d" />
 
 4. Create IAM Role for GitHub Actions
 4.1 Role Trust Relationship
@@ -75,6 +76,7 @@ This trust policy allows the specific GitHub repo (and branch) to assume the AWS
 ✅ This ensures only the main branch of your aws-secure-ci-cd repo can assume this role.
 
 Screenshot:
+<img width="1820" height="1116" alt="02_trust_policy" src="https://github.com/user-attachments/assets/33b380a7-06a9-4bf9-b4fa-14728e8f39b7" />
 
 
 5. Test the OIDC Connection from GitHub Actions
@@ -117,6 +119,7 @@ When the connection works, you’ll see an output like this:
 ✅ Indicates GitHub successfully assumed the AWS role with OIDC.
 
 Screenshot:
+<img width="1827" height="1327" alt="03_actions_success" src="https://github.com/user-attachments/assets/a1ff01fd-4422-45f0-8a47-82dd8b9af427" />
 
 
 6. Security Validation Checklist
