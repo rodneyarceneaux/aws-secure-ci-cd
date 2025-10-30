@@ -1,0 +1,59 @@
+name: Plan (Terraform + Security Gates)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: terraform/envs/dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python for Checkov
+        uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Install tooling
+        run: |
+          pip install checkov
+          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+          wget -qO /usr/local/bin/conftest https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_Linux_x86_64
+          chmod +x /usr/local/bin/conftest
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/aws-secure-ci-cd-terraform-dev-gha-oidc
+          aws-region: us-east-1
+
+      - name: Terraform init & validate
+        uses: hashicorp/setup-terraform@v3
+
+      - run: terraform fmt -check
+      - run: terraform init -upgrade
+      - run: terraform validate
+
+      - name: Run tfsec
+        run: tfsec --config-file ../../security/.tfsec.yaml ../../
+
+      - name: Run Checkov
+        run: checkov -d ../../ -o cli --config-file ../../security/.checkov.yaml
+
+      - name: Run Conftest
+        run: conftest test ../../terraform --policy ../../policy/rego
+
+      - name: Terraform plan
+        run: terraform plan -out tfplan
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: terraform/envs/dev/tfplan
