@@ -1,4 +1,5 @@
 🥇 Phase 1 – AWS OIDC Authentication Setup
+
 🎯 Objective
 
 Establish a secure, passwordless authentication channel between GitHub Actions and AWS using OpenID Connect (OIDC) — eliminating the need for static AWS access keys in CI/CD pipelines.
