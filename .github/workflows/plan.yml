@@ -1,58 +1,37 @@
-name: Plan (Terraform + Security Gates)
+name: Plan (Terraform + Parallel Security Scans)
 
 on:
   push:
     branches: [ main ]
   pull_request:
 
+permissions:
+  id-token: write
+  contents: read
+
+# --------------------------------------------------------
+# 1️⃣ Terraform Setup Job (linear, required before scans)
+# --------------------------------------------------------
 jobs:
-  plan:
+  terraform-setup:
+    name: Terraform Setup
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write        # Needed for OIDC federation
-      contents: read         # Required to clone repo
     defaults:
       run:
         working-directory: terraform/envs/dev
 
     steps:
-      # 1. Checkout the repo
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 2. Set up Python (for Checkov)
-      - name: Set up Python for Checkov
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      # 3. Install tooling (with safer installs and separate steps)
-      - name: Install Checkov
-        run: pip install checkov
-
-      - name: Install tfsec
-        run: |
-          wget -qO /usr/local/bin/tfsec https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64
-          chmod +x /usr/local/bin/tfsec
-
-      - name: Install Conftest
-        run: |
-          wget -qO /usr/local/bin/conftest https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_linux_amd64 || true
-          chmod +x /usr/local/bin/conftest || true
-
-
-      # 4. Configure AWS OIDC credentials
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::431477717595:role/rodneyarceneaux-aws-secure-ci-cd-terraform-prod-gha-oidc
           aws-region: us-east-1
 
-      # 5. Set up Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # 6. Terraform formatting, init, validate
       - name: Terraform Format Check
         run: terraform fmt -check
 
@@ -62,24 +41,94 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      # 7. Security scans
-      - name: Run tfsec
-        run: tfsec --config-file ../../security/.tfsec.yaml ../../ || true
 
-      - name: Run Checkov
-        run: checkov -d ../../ -o cli --config-file ../../security/.checkov.yaml || true
+  # --------------------------------------------------------
+  # 2️⃣ Security Scanners (parallel via matrix)
+  # --------------------------------------------------------
+  security-scans:
+    name: Security Scans (Parallel)
+    needs: terraform-setup
+    runs-on: ubuntu-latest
 
-      - name: Run Conftest (OPA Policy Checks)
-        run: conftest test ../../terraform --policy ../../policy/rego || true
+    strategy:
+      fail-fast: false           # Don’t cancel other scans if one fails
+      matrix:
+        scanner: [tfsec, checkov, conftest]
 
-      # 8. Terraform Plan
+    defaults:
+      run:
+        working-directory: terraform/envs/dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install dependencies based on selected scanner
+      - name: Set up Python for Checkov
+        if: matrix.scanner == 'checkov'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Checkov
+        if: matrix.scanner == 'checkov'
+        run: pip install checkov
+
+      - name: Install tfsec
+        if: matrix.scanner == 'tfsec'
+        run: |
+          wget -qO /usr/local/bin/tfsec https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64
+          chmod +x /usr/local/bin/tfsec
+
+      - name: Install Conftest
+        if: matrix.scanner == 'conftest'
+        run: |
+          wget -qO /usr/local/bin/conftest https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_linux_amd64
+          chmod +x /usr/local/bin/conftest
+
+      # Run each scanner in parallel
+      - name: Run ${{ matrix.scanner }}
+        run: |
+          case ${{ matrix.scanner }} in
+            tfsec)
+              tfsec --config-file ../../security/.tfsec.yaml ../../ ;;
+            checkov)
+              checkov -d ../../ -o cli --config-file ../../security/.checkov.yaml ;;
+            conftest)
+              conftest test ../../terraform --policy ../../policy/rego ;;
+          esac
+
+
+  # --------------------------------------------------------
+  # 3️⃣ Terraform Plan Job (depends on all scanners)
+  # --------------------------------------------------------
+  terraform-plan:
+    name: Terraform Plan
+    needs: 
+      - terraform-setup
+      - security-scans
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform/envs/dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::431477717595:role/rodneyarceneaux-aws-secure-ci-cd-terraform-prod-gha-oidc
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
       - name: Terraform Plan
         run: terraform plan -out tfplan
 
-      # 9. Upload Plan Artifact
-      - name: Upload plan artifact
+      - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan
           path: terraform/envs/dev/tfplan
-
