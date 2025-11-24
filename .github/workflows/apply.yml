@@ -1,81 +1,50 @@
-name: Apply (Terraform + Governance)
+name: Apply (Deploy Terraform)
 
 on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: "Type YES to apply infrastructure changes"
+        description: "Type YES to deploy"
         required: true
-        default: "NO"
-
-permissions:
-  id-token: write
-  contents: read
-
-env:
-  TF_WORKDIR: terraform/envs/dev
 
 jobs:
   apply:
-    name: Apply Terraform Changes
+    if: github.event.inputs.confirm == 'YES'
     runs-on: ubuntu-latest
-    environment: production
-    if: ${{ github.event.inputs.confirm == 'YES' }}
+    permissions:
+      id-token: write
+      contents: read
+
+    environment:
+      name: production   # <-- This enforces your approval gates
+
+    defaults:
+      run:
+        working-directory: terraform/envs/dev
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python for Checkov
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Checkov
-        run: pip install checkov
-
-      - name: Install tfsec
-        run: |
-          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
-
-      - name: Install Conftest
-        run: |
-          wget -q https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_Linux_x86_64 -O /usr/local/bin/conftest
-          chmod +x /usr/local/bin/conftest
-
-      # Authenticate to AWS via OIDC
-      - name: Configure AWS credentials
+      - name: Configure AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/rodneyarceneaux-aws-secure-ci-cd-terraform-prod-gha-oidc
+          role-to-assume: arn:aws:iam::<ACCOUNT>:role/<ROLE-NAME>
           aws-region: us-east-1
 
-      # Download the plan generated in plan.yml
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - run: terraform init -upgrade
+      - run: terraform validate
+
       - name: Download plan artifact
         uses: actions/download-artifact@v4
         with:
           name: tfplan
-          path: ${{ env.TF_WORKDIR }}
+          path: .
 
-      # Re-run validations
-      - name: Terraform Init
-        run: terraform -chdir=${{ env.TF_WORKDIR }} init -upgrade
-
-      - name: Terraform Validate
-        run: terraform -chdir=${{ env.TF_WORKDIR }} validate
-
-      - name: Run tfsec
-        run: tfsec ${{ env.TF_WORKDIR }} || true
-
-      - name: Run Checkov
-        run: checkov -d ${{ env.TF_WORKDIR }} || true
-
-      - name: Run Conftest
-        run: conftest test terraform || true
-
-      # Apply the previously approved plan
-      - name: Terraform Apply
-        run: terraform -chdir=${{ env.TF_WORKDIR }} apply -auto-approve tfplan
+      - name: Apply Terraform plan
+        run: terraform apply -auto-approve tfplan
 
 
 
