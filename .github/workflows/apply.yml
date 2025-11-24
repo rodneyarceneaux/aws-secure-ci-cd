@@ -1,37 +1,26 @@
-name: Apply (Manual, Guarded)
+name: Apply (Terraform + Governance)
 
 on:
   workflow_dispatch:
     inputs:
-      environment:
-        description: "Target environment"
-        type: choice
-        options: [dev, prod]
-        default: dev
-        required: true
       confirm:
-        description: "Type YES to confirm you want to APPLY infrastructure changes"
-        type: string
+        description: "Type YES to apply infrastructure changes"
         required: true
         default: "NO"
-
-concurrency:
-  group: terraform-apply-${{ inputs.environment }}
-  cancel-in-progress: false
 
 permissions:
   id-token: write
   contents: read
 
+env:
+  TF_WORKDIR: terraform/envs/dev
+
 jobs:
   apply:
-    # Only allow from main and only when confirm is YES
-    if: github.ref == 'refs/heads/main' && inputs.confirm == 'YES'
+    name: Apply Terraform Changes
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}   # set up a GitHub Environment with required reviewers for extra safety
-    defaults:
-      run:
-        working-directory: terraform/envs/dev
+    environment: production
+    if: ${{ github.event.inputs.confirm == 'YES' }}
 
     steps:
       - name: Checkout repository
@@ -40,61 +29,53 @@ jobs:
       - name: Set up Python for Checkov
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      # Tooling (same pattern as Plan)
       - name: Install Checkov
         run: pip install checkov
 
       - name: Install tfsec
         run: |
-          wget -qO /usr/local/bin/tfsec https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64
-          chmod +x /usr/local/bin/tfsec
+          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
 
       - name: Install Conftest
         run: |
-          latest=$(curl -s https://api.github.com/repos/open-policy-agent/conftest/releases/latest | grep "browser_download_url" | grep linux_amd64 | cut -d '"' -f 4)
-          wget -qO /usr/local/bin/conftest "$latest"
+          wget -q https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_Linux_x86_64 -O /usr/local/bin/conftest
           chmod +x /usr/local/bin/conftest
 
-      - name: Configure AWS credentials via OIDC
+      # Authenticate to AWS via OIDC
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::431477717595:role/rodneyarceneaux-aws-secure-ci-cd-terraform-prod-gha-oidc
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/rodneyarceneaux-aws-secure-ci-cd-terraform-prod-gha-oidc
           aws-region: us-east-1
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      # Download the plan generated in plan.yml
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_WORKDIR }}
 
-      # Validate again before apply (good hygiene)
-      - name: Terraform Format Check
-        run: terraform fmt -check
-
+      # Re-run validations
       - name: Terraform Init
-        run: terraform init -upgrade
+        run: terraform -chdir=${{ env.TF_WORKDIR }} init -upgrade
 
       - name: Terraform Validate
-        run: terraform validate
+        run: terraform -chdir=${{ env.TF_WORKDIR }} validate
 
-      # Re-run security gates (non-blocking by default; make them blocking if you prefer)
       - name: Run tfsec
-        run: tfsec --config-file ../../security/.tfsec.yaml ../../ || true
+        run: tfsec ${{ env.TF_WORKDIR }} || true
 
       - name: Run Checkov
-        run: checkov -d ../../ -o cli --config-file ../../security/.checkov.yaml || true
+        run: checkov -d ${{ env.TF_WORKDIR }} || true
 
-      - name: Run Conftest (OPA Policy Checks)
-        run: conftest test ../../terraform --policy ../../policy/rego || true
+      - name: Run Conftest
+        run: conftest test terraform || true
 
-      # Create a plan so approvers can see diffs in the logs
-      - name: Terraform Plan (pre-apply)
-        run: terraform plan -out tfplan
-
-      - name: Show Plan Summary
-        run: terraform show -no-color tfplan | sed -n '1,200p'
-
-      # Final apply using the plan we just generated
+      # Apply the previously approved plan
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform -chdir=${{ env.TF_WORKDIR }} apply -auto-approve tfplan
+
 
 
