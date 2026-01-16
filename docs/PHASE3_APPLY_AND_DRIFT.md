@@ -1,29 +1,194 @@
-# Phase 3 – Governance, Approvals & Secure Apply
+# Phase 3 – Terraform Apply & Drift Detection
 
-## Objectives
-- Human approval before deployment
-- OIDC-based secure apply workflow
-- Branch protection + environment governance
-- Re-run scanners before applying
-- Full auditability and artifact tracking
+## Objective
 
-## Architecture Overview
-(Include simple diagram – I can generate one if you want)
+This phase demonstrates **secure production deployment** using Terraform and continuous **drift detection** to ensure infrastructure remains compliant and unchanged outside of approved CI/CD pipelines.
 
-## apply.yml (Secure Deployment Workflow)
-(paste final code)
+---
 
-## GitHub Environment Setup
-(Steps described)
+## Architecture Summary
 
-## Branch Protection Rules
-(Steps described)
+In this phase, Terraform applies infrastructure changes using:
 
-## Screenshots to Include
-- Environment approval screen  
-- Apply manual trigger  
-- Successful apply  
-- IAM OIDC trust policy  
+* GitHub Actions with OIDC authentication
+* Federated IAM role (no static credentials)
+* Least-privilege access controls
+* Automated drift detection
+
+---
+
+## Step 1 – Terraform Apply (Production Deployment)
+
+### Action
+
+The CI/CD pipeline executes:
+
+```bash
+terraform apply
+```
+
+### Evidence
+
+📸 Screenshot:
+
+* Successful apply output
+* Resources created (IAM roles, S3, Lambda, etc.)
+
+**What this proves**
+
+* Infrastructure deployed strictly via code
+* No manual AWS console changes
+* Secure authentication using OIDC
+
+---
+
+## Step 2 – Verify IAM OIDC Role
+
+### AWS Console Validation
+
+Navigate to:
+
+```
+IAM → Roles → github-oidc-role
+```
+
+📸 Screenshot:
+
+* Trust policy showing:
+
+  * `sts:AssumeRoleWithWebIdentity`
+  * GitHub OIDC provider ARN
+  * Repository and branch restrictions
+
+**What this proves**
+
+* Zero long-lived credentials
+* Tight trust boundaries
+* Least privilege enforcement
+
+---
+
+## Step 3 – CloudTrail Authentication Logs
+
+### Validation
+
+Filter CloudTrail:
+
+```
+eventName = AssumeRoleWithWebIdentity
+```
+
+📸 Screenshot:
+
+* GitHub OIDC authentication event
+* Source IP
+* Role ARN
+* Session name
+
+**What this proves**
+
+* Real federated authentication
+* Audit logging enabled
+* Full traceability
+
+---
+
+## Step 4 – Drift Detection
+
+### Simulate Drift
+
+Manually change a resource in AWS
+(Example: modify S3 public access setting)
+
+Run:
+
+```bash
+terraform plan
+```
+
+📸 Screenshot:
+
+* Drift detected
+* Planned remediation changes
+
+**What this proves**
+
+* Configuration drift detection
+* Infrastructure governance
+
+---
+
+## Step 5 – Automated Drift Detection Job
+
+Pipeline:
+
+* Scheduled GitHub Action
+* Executes `terraform plan` daily
+
+📸 Screenshot:
+
+* Scheduled workflow
+* Drift detection step
+* Notification (Slack/Jira if configured)
+
+---
+
+## Step 6 – Security Monitoring
+
+Provide evidence of **one**:
+
+* GuardDuty finding
+* Security Hub alert
+* Datadog SIEM event
+
+📸 Screenshot:
+
+* Detection alert
+* Resource affected
+* Severity
+
+**What this proves**
+
+* Continuous monitoring
+* Cloud-native detections
+
+---
+
+## Security Controls Enforced
+
+* IAM least privilege
+* No static credentials
+* CI/CD gated deployments
+* IaC security scanning
+* Drift detection
+* Audit logging
+
+---
+
+## Key Takeaways
+
+* All infrastructure changes go through code
+* GitHub OIDC prevents credential leaks
+* Drift detection enforces compliance
+* Logging ensures audit readiness
+* Pipeline supports production-grade security
+
+---
+
+## Future Enhancements
+
+* Slack alerting for drift
+* Auto-remediation
+* AWS Config rules
+* Cost anomaly detection
+
+---
+
+## Author
+
+Rodney Arceneaux
+Cloud Security Engineer
+[LinkedIn](https://linkedin.com/in/rodneyarceneaux116)
 
 
 
