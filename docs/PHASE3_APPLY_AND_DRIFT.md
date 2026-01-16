@@ -133,27 +133,6 @@ Pipeline:
 
 ---
 
-## Step 6 – Security Monitoring
-
-Provide evidence of **one**:
-
-* GuardDuty finding
-* Security Hub alert
-* Datadog SIEM event
-
-📸 Screenshot:
-
-* Detection alert
-* Resource affected
-* Severity
-
-**What this proves**
-
-* Continuous monitoring
-* Cloud-native detections
-
----
-
 ## Security Controls Enforced
 
 * IAM least privilege
@@ -172,16 +151,6 @@ Provide evidence of **one**:
 * Drift detection enforces compliance
 * Logging ensures audit readiness
 * Pipeline supports production-grade security
-
----
-
-## Future Enhancements
-
-* Slack alerting for drift
-* Auto-remediation
-* AWS Config rules
-* Cost anomaly detection
-
 ---
 
 ## Author
